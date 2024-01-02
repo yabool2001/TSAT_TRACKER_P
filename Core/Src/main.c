@@ -49,9 +49,10 @@ TIM_HandleTypeDef htim6;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 UART_HandleTypeDef huart5;
-#define BUFFER_SIZE 4096
+
 /* USER CODE BEGIN PV */
-char*		hello = "\nHello NEMO2SPACE TRACKER P assembly test firmware v0.0.1 started.\n" ;
+#define BUFFER_SIZE 4096
+char*		hello = "\nHello NEMO2SPACE TRACKER P assembly test firmware v0.0.2 started.\n" ;
 
 // UART
 uint8_t c = 0 ;
@@ -67,10 +68,24 @@ uint16_t tim_seconds = 0 ;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
+
+
+
+
+void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_RTC_Init(void);
+static void MX_SPI1_Init(void);
+static void MX_TIM6_Init(void);
+static void MX_USART2_UART_Init(void);
+static void MX_USART3_UART_Init(void);
+static void MX_USART5_UART_Init(void);
+
+/* USER CODE BEGIN PFP */
 volatile uint8_t uart5_rx_buffer[BUFFER_SIZE];
 volatile uint8_t uart5_rx_index = 0;
-
 uint8_t uart2_tx_buffer[BUFFER_SIZE];
+
 
 typedef struct {
     uint8_t* buffer;
@@ -82,16 +97,6 @@ typedef struct {
 
 fifo_t uart_fifo;
 uint8_t 	gnss_rxd_byte = 0 ;
-void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_RTC_Init(void);
-static void MX_SPI1_Init(void);
-static void MX_TIM6_Init(void);
-static void MX_USART2_UART_Init(void);
-static void MX_USART3_UART_Init(void);
-static void MX_USART5_UART_Init(void);
-
-/* USER CODE BEGIN PFP */
 void send_debug_logs ( char* ) ;
 int32_t my_lis2dw12_platform_write ( void* , uint8_t , const uint8_t* , uint16_t ) ;
 int32_t my_lis2dw12_platform_read ( void* , uint8_t , uint8_t* , uint16_t ) ;
@@ -144,18 +149,33 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM6_Init();
   MX_USART2_UART_Init();
-  HAL_UART_Transmit ( HUART_DBG , (uint8_t*) hello , strlen ( hello ) , UART_TIMEOUT ) ;
+
   MX_USART3_UART_Init();
   MX_USART5_UART_Init();
 
-  __enable_irq();
+
   /* USER CODE BEGIN 2 */
+  HAL_UART_Transmit ( HUART_DBG , (uint8_t*) hello , strlen ( hello ) , UART_TIMEOUT ) ;
+  __enable_irq();
   fifo_init(uart2_tx_buffer, BUFFER_SIZE, &uart_fifo);
-
-
-
   my_tim_init () ;
   send_debug_logs ( "The device test started. You have max. 10 minutes to complete each steps.\n" ) ;
+
+  if(HAL_GPIO_ReadPin(GNSS_3DFIX_GPIO_Port, GNSS_3DFIX_Pin))
+	 send_debug_logs ( "3D FIX pin HIGH\n" );
+  else
+	 send_debug_logs ( "3D FIX pin LOW\n" );
+
+  if(HAL_GPIO_ReadPin(GNSS_JAM_GPIO_Port, GNSS_JAM_Pin))
+		 send_debug_logs ( "JAM pin HIGH\n" );
+	 else
+		 send_debug_logs ( "JAM pin LOW\n" );
+
+  if(HAL_GPIO_ReadPin(GNSS_GEOF_GPIO_Port, GNSS_GEOF_Pin))
+		 send_debug_logs ( "GEOFFENCE pin HIGH\n" );
+	 else
+		 send_debug_logs ( "GEOFFENCE pin LOW\n" );
+
   send_debug_logs ( "GREEN LED ON\n" ) ;
   HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_SET);
   HAL_Delay(2000);
@@ -983,14 +1003,6 @@ exit:
     return retval;
 }
 
-
-
-/* USER CODE END 4 */
-
-/**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
 void EXTI4_15_IRQHandler (void) {
     HAL_GPIO_EXTI_IRQHandler(GNSS_3DFIX_Pin);
 
@@ -1031,6 +1043,14 @@ void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 	HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_SET);
 	send_debug_logs ( "* EXTI5 INT: Succesful 3D position fix.\n" ) ;
 }
+
+/* USER CODE END 4 */
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
