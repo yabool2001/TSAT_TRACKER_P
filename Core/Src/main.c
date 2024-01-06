@@ -68,10 +68,6 @@ uint16_t tim_seconds = 0 ;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
-
-
-
-
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_RTC_Init(void);
@@ -80,7 +76,6 @@ static void MX_TIM6_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_USART5_UART_Init(void);
-
 /* USER CODE BEGIN PFP */
 volatile uint8_t uart5_rx_buffer[BUFFER_SIZE];
 volatile uint8_t uart5_rx_index = 0;
@@ -98,6 +93,7 @@ typedef struct {
 fifo_t uart_fifo;
 uint8_t 	gnss_rxd_byte = 0 ;
 void send_debug_logs ( char* ) ;
+void send_gnss_msg( char* ) ;
 int32_t my_lis2dw12_platform_write ( void* , uint8_t , const uint8_t* , uint16_t ) ;
 int32_t my_lis2dw12_platform_read ( void* , uint8_t , uint8_t* , uint16_t ) ;
 void my_gnss_on ( void ) ;
@@ -149,12 +145,31 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM6_Init();
   MX_USART2_UART_Init();
-
   MX_USART3_UART_Init();
   MX_USART5_UART_Init();
 
 
   /* USER CODE BEGIN 2 */
+
+  if(!(HAL_GPIO_ReadPin(SW1_GPIO_Port, SW1_Pin)))
+    {
+  	  send_debug_logs ( "SW1 PIN LOW\n" );
+  	  send_debug_logs ( "Enter to gnss standalone mode:\n" );
+  	  send_debug_logs ( "deinit uart gnss" );
+  	  HAL_UART_DeInit ( HUART_GNSS ) ;
+  	  send_debug_logs ( "switch on gnss\n" );
+  	  my_gnss_on () ;
+  	  while(!(HAL_GPIO_ReadPin(SW1_GPIO_Port, SW1_Pin)))
+  		  {
+  		  HAL_Delay(500);
+  		  HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_SET);
+  		  HAL_Delay(500);
+  		  HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_RESET);
+  		  }
+  	  my_gnss_off() ;
+  	  MX_USART5_UART_Init();
+
+    }
   HAL_UART_Transmit ( HUART_DBG , (uint8_t*) hello , strlen ( hello ) , UART_TIMEOUT ) ;
   __enable_irq();
   fifo_init(uart2_tx_buffer, BUFFER_SIZE, &uart_fifo);
@@ -175,6 +190,7 @@ int main(void)
 		 send_debug_logs ( "GEOFFENCE pin HIGH\n" );
 	 else
 		 send_debug_logs ( "GEOFFENCE pin LOW\n" );
+
 
   send_debug_logs ( "GREEN LED ON\n" ) ;
   HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_SET);
@@ -271,6 +287,9 @@ int main(void)
   send_debug_logs ( "* GREEN LED indicate succesful 3D position fix.\n" ) ;
   HAL_UART_Receive_IT(HUART_GNSS, &rxd_byte, 1);
 
+  HAL_Delay(2000);
+  send_gnss_msg("$PAIR902,0,1*30\r\n");
+  send_gnss_msg("$PAIR391,1*2C\r\n");
   tim_seconds = 0 ;
   my_tim_start () ;
   while ( tim_seconds < TIM_SECONDS_THS_SYSTEM_RESET  )
@@ -730,11 +749,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : ASTRO_EVT_Pin GNSS_3DFIX_Pin GNSS_JAM_Pin */
-  GPIO_InitStruct.Pin = ASTRO_EVT_Pin|GNSS_3DFIX_Pin|GNSS_JAM_Pin;
+  /*Configure GPIO pin : ASTRO_EVT_Pin */
+  GPIO_InitStruct.Pin = ASTRO_EVT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(ASTRO_EVT_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB12 */
   GPIO_InitStruct.Pin = GPIO_PIN_12;
@@ -749,8 +768,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GNSS_RST_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : SATCOM_ANTN_USE_Pin GNSS_GEOF_Pin */
-  GPIO_InitStruct.Pin = SATCOM_ANTN_USE_Pin|GNSS_GEOF_Pin;
+  /*Configure GPIO pins : SATCOM_ANTN_USE_Pin GNSS_3DFIX_Pin GNSS_JAM_Pin GNSS_GEOF_Pin */
+  GPIO_InitStruct.Pin = SATCOM_ANTN_USE_Pin|GNSS_3DFIX_Pin|GNSS_JAM_Pin|GNSS_GEOF_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -798,6 +817,19 @@ void send_debug_logs ( char* p_tx_buffer )
 
     HAL_UART_Transmit ( HUART_DBG , ( uint8_t* ) p_tx_buffer , length , UART_TIMEOUT ) ;
     HAL_UART_Transmit ( HUART_DBG , ( uint8_t* ) "\n" , 1 , UART_TIMEOUT ) ;
+}
+void send_gnss_msg ( char* p_tx_buffer )
+{
+    uint32_t length = strlen ( p_tx_buffer ) ;
+
+    if ( length > UART_TX_MAX_BUFF_SIZE )
+    {
+        HAL_UART_Transmit ( HUART_GNSS , ( uint8_t* ) "[ERROR] UART buffer reached max length.\n" , 42 , UART_TIMEOUT ) ;
+        length = UART_TX_MAX_BUFF_SIZE;
+    }
+
+    HAL_UART_Transmit ( HUART_GNSS , ( uint8_t* ) p_tx_buffer , length , UART_TIMEOUT ) ;
+    HAL_UART_Transmit ( HUART_GNSS , ( uint8_t* ) "\n" , 1 , UART_TIMEOUT ) ;
 }
 
 // ACC LL Function
@@ -1050,7 +1082,6 @@ void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
   * @brief  This function is executed in case of error occurrence.
   * @retval None
   */
-
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
